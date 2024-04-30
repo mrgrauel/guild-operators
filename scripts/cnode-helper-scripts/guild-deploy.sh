@@ -109,7 +109,6 @@ set_defaults() {
   [[ "${SUDO}" = 'Y' && $(id -u) -eq 0 ]] && err_exit "Please run as non-root user."
   CNODE_HOME="${CNODE_PATH}/${CNODE_NAME}"
   CNODE_VNAME=$(echo "$CNODE_NAME" | awk '{print toupper($0)}')
-  CARDANO_NODE_VERSION="8.9.2"
   REPO="https://github.com/${G_ACCOUNT}/guild-operators"
   REPO_RAW="https://raw.githubusercontent.com/${G_ACCOUNT}/guild-operators"
   URL_RAW="${REPO_RAW}/${BRANCH}"
@@ -160,10 +159,6 @@ common_init() {
   if ! grep -q '/.local/bin' "${HOME}"/.bashrc; then
     echo -e '\nexport PATH="${HOME}/.local/bin:${PATH}"' >> "${HOME}"/.bashrc
   fi
-  NODE_DEPS="$(curl -sfL "${URL_RAW}"/files/node-deps.json)"
-  BLST_REF="$(jq -r '."'${CARDANO_NODE_VERSION}'".blst' <<< ${NODE_DEPS})"
-  SODIUM_REF="$(jq -r '."'${CARDANO_NODE_VERSION}'".secp256k1' <<< ${NODE_DEPS})"
-  SECP256K1_REF="$(jq -r '."'${CARDANO_NODE_VERSION}'".sodium' <<< ${NODE_DEPS})"
 }
 
 ### Update file retaining existing custom configs
@@ -261,8 +256,7 @@ os_dependencies() {
   [[ ! -d "./secp256k1" ]] && git clone https://github.com/bitcoin-core/secp256k1 &>/dev/null
   pushd secp256k1 >/dev/null || err_exit
   git fetch >/dev/null 2>&1
-  [[ -z "${SECP256K1_REF}" ]] && SECP256K1_REF="ac83be33"
-  git checkout ${SECP256K1_REF} &>/dev/null
+  git checkout ac83be33 &>/dev/null
   ./autogen.sh > autogen.log > /tmp/secp256k1.log 2>&1
   ./configure --enable-module-schnorrsig --enable-experimental > configure.log >> /tmp/secp256k1.log 2>&1
   make > make.log 2>&1 || err_exit " Could not complete \"make\" for libsecp256k1 package, please try to run it manually to diagnose!"
@@ -321,8 +315,7 @@ build_libsodium() {
   [[ ! -d "./libsodium" ]] && git clone https://github.com/intersectmbo/libsodium &>/dev/null
   pushd libsodium >/dev/null || err_exit
   git fetch >/dev/null 2>&1
-  [[ -z "${SODIUM_REF}" ]] && SODIUM_REF="dbb48cc"
-  git checkout "${SODIUM_REF}" &>/dev/null
+  git checkout dbb48cc &>/dev/null
   ./autogen.sh > autogen.log > /tmp/libsodium.log 2>&1
   ./configure > configure.log >> /tmp/libsodium.log 2>&1
   make > make.log 2>&1 || err_exit  " Could not complete \"make\" for libsodium package, please try to run it manually to diagnose!"
@@ -340,8 +333,7 @@ build_libblst() {
   [[ ! -d "./blst" ]] && git clone https://github.com/supranational/blst &>/dev/null
   pushd blst >/dev/null || err_exit
   git fetch >/dev/null 2>&1
-  [[ -z "${BLST_REF}" ]] && BLST_REF="v0.3.11"
-  git checkout ${BLST_REF} &>/dev/null
+  git checkout v0.3.10 &>/dev/null
   ./build.sh >/dev/null 2>&1
   cat <<-EOF >libblst.pc
 		prefix=/usr/local
@@ -364,28 +356,26 @@ build_libblst() {
 }
 
 # Download cardano-node, cardano-cli, cardano-db-sync, bech32 and cardano-submit-api
-# TODO: Replace these with self-hosted ones (potentially consider snapshots.koios.rest as upload destination for CI)
+# TODO: Replace these with self-hosted ones (potentially consider IPFS as upload destination for CI)
 download_cnodebins() {
   [[ -z ${ARCH##*aarch64*} ]] && err_exit "  The build archives are not available for ARM, you might need to build them!"
   echo -e "\nDownloading binaries.."
   pushd "${HOME}"/tmp >/dev/null || err_exit
   echo -e "\n  Downloading Cardano Node archive created from GitHub.."
   rm -f cardano-node cardano-address
-  curl -m 200 -sfL https://github.com/intersectmbo/cardano-node/releases/download/${CARDANO_NODE_VERSION}/cardano-node-${CARDANO_NODE_VERSION}-linux.tar.gz -o cnode.tar.gz || err_exit " Could not download cardano-node release ${CARDANO_NODE_VERSION} from GitHub!"
-  tar zxf cnode.tar.gz --strip-components 2 ./bin/cardano-node ./bin/cardano-cli ./bin/cardano-submit-api ./bin/bech32 &>/dev/null
+  curl -m 200 -sfL https://github.com/IntersectMBO/cardano-node/releases/download/8.10.1-pre/cardano-node-8.10.0-linux.tar.gz -o cnode.tar.gz || err_exit " Could not download cardano-node release 8.10.0-pre from GitHub!"
+  tar zxf cnode.tar.gz ./cardano-node ./cardano-cli ./cardano-submit-api ./bech32 &>/dev/null
   rm -f cnode.tar.gz
   [[ -f cardano-node ]] || err_exit " cardano-node archive downloaded but binary (cardano-node) not found after extracting package!"
   echo -e "\n  Downloading Github release package for Cardano Wallet"
   curl -m 200 -sfL https://github.com/intersectmbo/cardano-addresses/releases/download/3.12.0/cardano-addresses-3.12.0-linux64.tar.gz -o caddress.tar.gz || err_exit " Could not download cardano-wallet's latest release archive from GitHub!"
-  tar zxf caddress.tar.gz --strip-components 1 bin/cardano-address &>/dev/null
+  tar zxf caddress.tar.gz --strip-components=1 bin/cardano-address &>/dev/null
   rm -f caddress.tar.gz
   [[ -f cardano-address ]] || err_exit " cardano-address archive downloaded but binary (bin/cardano-address) not found after extracting package!"
   if [[ "${SKIP_DBSYNC_DOWNLOAD}" == "N" ]]; then
     echo -e "\n  Downloading Cardano DB Sync archive created from GitHub.."
-    # TODO: Replace CI Build artifact against 13.2.0.2 tag with release from github artefacts once available
-    #curl -m 200 -sfL https://github.com/IntersectMBO/cardano-db-sync/releases/download/13.2.0.2/cardano-db-sync-13.2.0.1-linux.tar.gz -o cnodedbsync.tar.gz || err_exit "  Could not download cardano-db-sync release 13.2.0.2 from GitHub!"
-    curl -m 200 -sfL https://ci.iog.io/build/3735786/download/1/cardano-db-sync-13.2.0.2-linux.tar.gz -o cnodedbsync.tar.gz || err_exit "  Could not download cardano-db-sync release 13.2.0.2 from GitHub!"
-    tar zxf cnodedbsync.tar.gz --strip-components 1 ./cardano-db-sync &>/dev/null
+    curl -m 200 -sfL https://github.com/intersectmbo/cardano-db-sync/releases/download/sancho-3-0-0/cardano-db-sync-13.2.0.0-linux.tar.gz -o cnodedbsync.tar.gz || err_exit "  Could not download cardano-db-sync release 13.2.0.0 from GitHub!"
+    tar zxf cnodedbsync.tar.gz ./cardano-db-sync &>/dev/null
     [[ -f cardano-db-sync ]] || err_exit " cardano-db-sync archive downloaded but binary (cardano-db-sync) not found after extracting package!"
     rm -f cnodedbsync.tar.gz
     mv -f -t "${HOME}"/.local/bin cardano-db-sync
@@ -399,11 +389,11 @@ download_cncli() {
   [[ -z ${ARCH##*aarch64*} ]] && err_exit "  The cncli pre-compiled binary is not available for ARM, you might need to build them!"
   echo -e "\nInstalling CNCLI.."
   if command -v cncli >/dev/null; then cncli_version="v$(cncli -V 2>/dev/null | cut -d' ' -f2)"; else cncli_version="v0.0.0"; fi
-  cncli_git_version="$(curl -s https://api.github.com/repos/cardano-community/cncli/releases/latest | jq -r '.tag_name')"
+  cncli_git_version="$(curl -s https://api.github.com/repos/${G_ACCOUNT}/cncli/releases/latest | jq -r '.tag_name')"
   echo -e "\n  Downloading CNCLI..."
   rm -rf /tmp/cncli-bin && mkdir /tmp/cncli-bin
   pushd /tmp/cncli-bin >/dev/null || err_exit
-  cncli_asset_url="$(curl -s https://api.github.com/repos/cardano-community/cncli/releases/latest | jq -r '.assets[].browser_download_url' | grep 'ubuntu22.*.linux-musl.tar.gz')"
+  cncli_asset_url="$(curl -s https://api.github.com/repos/${G_ACCOUNT}/cncli/releases/latest | jq -r '.assets[].browser_download_url' | grep 'ubuntu22.*.linux-musl.tar.gz')"
   if curl -sL -f -m ${CURL_TIMEOUT} -o cncli.tar.gz ${cncli_asset_url}; then
     tar zxf cncli.tar.gz &>/dev/null
     rm -f cncli.tar.gz
@@ -511,7 +501,7 @@ download_cardanosigner() {
     csigner_asset_url="$(curl -s https://api.github.com/repos/gitmachtl/cardano-signer/releases/latest | jq -r '.assets[].browser_download_url')"
     csigner_release_url=""
     while IFS= read -r release; do
-      if [[ -z ${ARCH##*x86_64*} && ${release} = *linux-x64.tar.gz ]]; then # Linux x64
+      if [[ -z ${ARCH##*x86_64*} && ${release} = *linux-amd64.tar.gz ]]; then # Linux x64
         csigner_release_url=${release}; break
       fi
     done <<< "${csigner_asset_url}"
